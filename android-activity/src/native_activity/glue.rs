@@ -20,6 +20,11 @@ use crate::{
 
 use super::{AndroidApp, Rect};
 
+/// How long the activity's lifecycle callbacks wait for android_main to take
+/// a new state in (`set_activity_state`), well within the 5 seconds after
+/// which Android reports the app as not responding.
+const LIFECYCLE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum AppCmd {
     InputQueueChanged = 0,
@@ -520,8 +525,20 @@ impl WaitableNativeActivityState {
         };
         guard.write_cmd(cmd);
 
+        // The Java main thread waits for android_main to take the new state
+        // in, but not for long: android_main may be busy for seconds on a slow
+        // phone (compiling shaders, waiting on the GPU), and Android reports
+        // an app whose main thread is held in onStart/onResume/onPause/onStop
+        // as not responding. The command stays queued, and android_main takes
+        // it in when it next polls; nothing here needs it to have done so.
+        let deadline = std::time::Instant::now() + LIFECYCLE_WAIT;
         while guard.thread_state == NativeThreadState::Running && guard.activity_state != state {
-            guard = self.cond.wait(guard).unwrap();
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                log::warn!("android_main did not take in {state:?} within {LIFECYCLE_WAIT:?}; carrying on");
+                break;
+            }
+            guard = self.cond.wait_timeout(guard, left).unwrap().0;
         }
     }
 
