@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- native-activity: an input queue destroyed after `android_main` returns is no longer detached later from the activity state's `Drop`, which aborted in `InputQueue::detachLooper` ("pthread_mutex_lock called on a destroyed mutex")
+
 ## [0.6.1] - 2026-03-30
 
 ### Added

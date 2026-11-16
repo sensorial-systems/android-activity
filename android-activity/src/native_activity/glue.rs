@@ -482,6 +482,18 @@ impl WaitableNativeActivityState {
             guard = self.cond.wait(guard).unwrap();
         }
         guard.pending_input_queue = ptr::null_mut();
+
+        // Once android_main has stopped, nothing takes the change in
+        // (`pre_exec_cmd`), so the queue we hold would outlive this callback:
+        // Android destroys it as `onInputQueueDestroyed` returns, and the last
+        // `Drop` of this state would then detach a destroyed queue (an abort in
+        // `InputQueue::detachLooper`, "pthread_mutex_lock called on a destroyed
+        // mutex"). Let it go here, while it still exists. A queue created
+        // after that is never attached, as no thread would read it.
+        if guard.thread_state != NativeThreadState::Running && guard.input_queue != input_queue {
+            guard.detach_input_queue_from_looper();
+            guard.input_queue = ptr::null_mut();
+        }
     }
 
     unsafe fn set_window(&self, window: Option<NativeWindow>) {
